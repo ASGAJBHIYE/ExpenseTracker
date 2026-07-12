@@ -37,3 +37,4 @@ This project is a simple self-hosted web app for tracking expenses. It uses Flas
 ```bash
 python -m unittest discover -s tests -v
 ```
+# ExpenseTracker
