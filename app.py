@@ -32,14 +32,13 @@ HTML_TEMPLATE = """
     <nav>
       <a href="/">Dashboard</a>
       <a href="/add">Add Expense</a>
-      <a href="/recurring">Recurring</a>
       <a href="/export-csv">Export CSV</a>
       <a href="/logout">Logout</a>
     </nav>
     <h1>Expense Dashboard</h1>
     <p class="small">Signed in as {{ username }} — shared household view</p>
     <div class="summary">
-      <div><strong>Total Spent</strong><br>${{ total_spent }}</div>
+      <div><strong>Total Spent</strong><br>Rs. {{ total_spent }}</div>
       <div><strong>Entries</strong><br>{{ entry_count }}</div>
       <div><strong>Categories</strong><br>{{ category_count }}</div>
     </div>
@@ -54,7 +53,7 @@ HTML_TEMPLATE = """
           <td>{{ expense['description'] }}</td>
           <td>{{ expense['category_name'] or 'Uncategorized' }}</td>
           <td>{{ expense['subcategory_name'] or '-' }}</td>
-          <td>${{ '%.2f'|format(expense['price']) }}</td>
+          <td>Rs. {{ '%.2f'|format(expense['price']) }}</td>
           <td>
             <a href="/edit-expense/{{ expense['id'] }}">Edit</a> |
             <form method="post" action="/delete-expense/{{ expense['id'] }}" style="display:inline;">
@@ -71,7 +70,7 @@ HTML_TEMPLATE = """
       <h3>Monthly Totals</h3>
       <ul>
         {% for month in monthly_totals %}
-        <li>{{ month['month'] }}: ${{ '%.2f'|format(month['total']) }}</li>
+        <li>{{ month['month'] }}: Rs. {{ '%.2f'|format(month['total']) }}</li>
         {% else %}
         <li>No spending data yet.</li>
         {% endfor %}
@@ -81,7 +80,7 @@ HTML_TEMPLATE = """
       <h3>Category Spend</h3>
       <ul>
         {% for row in category_totals %}
-        <li>{{ row['category'] }}: ${{ '%.2f'|format(row['total']) }}</li>
+        <li>{{ row['category'] }}: Rs. {{ '%.2f'|format(row['total']) }}</li>
         {% else %}
         <li>No category data yet.</li>
         {% endfor %}
@@ -109,12 +108,12 @@ ADD_EXPENSE_TEMPLATE = """
     <nav>
       <a href="/">Dashboard</a>
       <a href="/add">Add Expense</a>
-      <a href="/recurring">Recurring</a>
       <a href="/export-csv">Export CSV</a>
       <a href="/logout">Logout</a>
     </nav>
     <div class="card">
       <h1>Add Expense</h1>
+      {% if message %}<p style="color:#b91c1c;">{{ message }}</p>{% endif %}
       <form method="post" action="/add">
         <label>Date</label>
         <input type="date" name="expense_date" required>
@@ -361,19 +360,30 @@ def add_expense():
         subcategory_name = request.form['subcategory']
         price = float(request.form['price'])
         spender = request.form.get('spender_username', '').strip() or session.get('username', 'User')
-        conn = get_db_connection()
-        category_id = get_or_create_category(conn, user_id, category_name)
-        subcategory_id = get_or_create_subcategory(conn, user_id, category_id, subcategory_name)
-        conn.execute(
-            'INSERT INTO expenses (user_id, expense_date, description, category_id, subcategory_id, price, spender_username) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            (user_id, date, description, category_id, subcategory_id, price, spender),
-        )
-        conn.commit()
-        conn.close()
-        return redirect(url_for('index'))
+        conn = None
+        try:
+            conn = get_db_connection()
+            category_id = get_or_create_category(conn, user_id, category_name)
+            subcategory_id = get_or_create_subcategory(conn, user_id, category_id, subcategory_name)
+            conn.execute(
+                'INSERT INTO expenses (user_id, expense_date, description, category_id, subcategory_id, price, spender_username) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (user_id, date, description, category_id, subcategory_id, price, spender),
+            )
+            conn.commit()
+            return redirect(url_for('index'))
+        except Exception as exc:
+            if conn is not None:
+                conn.rollback()
+                conn.close()
+            categories = ['Food', 'Transport', 'Housing', 'Utilities', 'Health', 'Entertainment', 'Shopping', 'Education', 'Travel', 'Personal', 'Salary', 'Other']
+            subcategories = ['Groceries', 'Dining Out', 'Coffee', 'Fuel', 'Transit', 'Rent', 'Mortgage', 'Electricity', 'Water', 'Internet', 'Medicine', 'Insurance', 'Movies', 'Streaming', 'Clothes', 'Electronics', 'Books', 'Tuition', 'Flights', 'Hotels', 'Gifts', 'Beauty', 'Sports', 'Salary', 'Bonus', 'Other']
+            return render_template_string(ADD_EXPENSE_TEMPLATE, username=session.get('username', 'User'), categories=categories, subcategories=subcategories, message=f'Unable to save expense: {exc}')
+        finally:
+            if conn is not None:
+                conn.close()
     categories = ['Food', 'Transport', 'Housing', 'Utilities', 'Health', 'Entertainment', 'Shopping', 'Education', 'Travel', 'Personal', 'Salary', 'Other']
     subcategories = ['Groceries', 'Dining Out', 'Coffee', 'Fuel', 'Transit', 'Rent', 'Mortgage', 'Electricity', 'Water', 'Internet', 'Medicine', 'Insurance', 'Movies', 'Streaming', 'Clothes', 'Electronics', 'Books', 'Tuition', 'Flights', 'Hotels', 'Gifts', 'Beauty', 'Sports', 'Salary', 'Bonus', 'Other']
-    return render_template_string(ADD_EXPENSE_TEMPLATE, username=session.get('username', 'User'), categories=categories, subcategories=subcategories)
+    return render_template_string(ADD_EXPENSE_TEMPLATE, username=session.get('username', 'User'), categories=categories, subcategories=subcategories, message=None)
 
 
 @app.route('/edit-expense/<int:expense_id>', methods=['GET', 'POST'])
